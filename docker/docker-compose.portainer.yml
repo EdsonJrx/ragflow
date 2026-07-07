@@ -1,0 +1,197 @@
+version: "3.8"
+
+services:
+  es01:
+    image: elasticsearch:${STACK_VERSION}
+    volumes:
+      - esdata01:/usr/share/elasticsearch/data
+    tmpfs:
+      - /tmp:mode=1777,size=512m
+    environment:
+      - node.name=es01
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - bootstrap.memory_lock=false
+      - discovery.type=single-node
+      - xpack.security.enabled=true
+      - xpack.security.http.ssl.enabled=false
+      - xpack.security.transport.ssl.enabled=false
+      - cluster.routing.allocation.disk.watermark.low=5gb
+      - cluster.routing.allocation.disk.watermark.high=3gb
+      - cluster.routing.allocation.disk.watermark.flood_stage=2gb
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - curl http://localhost:9200
+      interval: 10s
+      timeout: 10s
+      retries: 120
+    networks:
+      - ragflow
+    deploy:
+      resources:
+        limits:
+          memory: ${MEM_LIMIT}
+      restart_policy:
+        condition: any
+
+  mysql:
+    image: mysql:8.0.39
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DBNAME}
+    command:
+      - --max_connections=1000
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+      - --tls_version=TLSv1.2,TLSv1.3
+      - --binlog_expire_logs_seconds=604800
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - ragflow
+    healthcheck:
+      test:
+        - CMD
+        - mysqladmin
+        - ping
+        - -uroot
+        - -p${MYSQL_PASSWORD}
+      interval: 10s
+      timeout: 10s
+      retries: 120
+    deploy:
+      restart_policy:
+        condition: any
+
+  minio:
+    image: pgsty/minio:RELEASE.2026-03-25T00-00-00Z
+    command:
+      - server
+      - --console-address
+      - :9001
+      - /data
+    environment:
+      - MINIO_ROOT_USER=${MINIO_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_PASSWORD}
+    volumes:
+      - minio_data:/data
+    networks:
+      - ragflow
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - -f
+        - http://localhost:9000/minio/health/live
+      interval: 10s
+      timeout: 10s
+      retries: 120
+    deploy:
+      restart_policy:
+        condition: any
+
+  redis:
+    image: valkey/valkey:8
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD}
+      - --maxmemory
+      - 128mb
+      - --maxmemory-policy
+      - allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - ragflow
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - -a
+        - ${REDIS_PASSWORD}
+        - ping
+      interval: 10s
+      timeout: 10s
+      retries: 120
+    deploy:
+      restart_policy:
+        condition: any
+
+  ragflow-cpu:
+    depends_on:
+      - mysql
+      - redis
+      - minio
+      - es01
+    image: ${RAGFLOW_IMAGE}
+    command:
+      - --enable-adminserver
+      - --init-model-provider-tables
+    environment:
+      - TZ=${TZ}
+      - REGISTER_ENABLED=${REGISTER_ENABLED}
+      - DOC_ENGINE=${DOC_ENGINE}
+      - ES_HOST=${ES_HOST}
+      - ES_PORT=9200
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - MYSQL_HOST=${MYSQL_HOST}
+      - MYSQL_PORT=${MYSQL_PORT}
+      - MYSQL_DBNAME=${MYSQL_DBNAME}
+      - MYSQL_USER=root
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - MINIO_HOST=${MINIO_HOST}
+      - MINIO_PORT=${MINIO_PORT}
+      - MINIO_USER=${MINIO_USER}
+      - MINIO_PASSWORD=${MINIO_PASSWORD}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    volumes:
+      - ragflow_logs:/ragflow/logs
+    configs:
+      - source: ragflow_service_conf
+        target: /ragflow/conf/service_conf.yaml.template
+      - source: ragflow_entrypoint
+        target: /ragflow/entrypoint.sh
+        mode: 0555
+    networks:
+      - ragflow
+      - traefik_public
+    deploy:
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.ragflow.rule=Host(`ragflow.engepar.site`)
+        - traefik.http.routers.ragflow.entrypoints=websecure
+        - traefik.http.routers.ragflow.tls=true
+        - traefik.http.routers.ragflow.tls.certresolver=letsencrypt
+        - traefik.http.services.ragflow.loadbalancer.server.port=80
+        - traefik.swarm.network=traefik_public
+      restart_policy:
+        condition: any
+
+volumes:
+  esdata01: {}
+  mysql_data: {}
+  minio_data: {}
+  redis_data: {}
+  ragflow_logs: {}
+
+networks:
+  ragflow:
+    driver: overlay
+
+  traefik_public:
+    external: true
+
+configs:
+  ragflow_service_conf:
+    file: ./service_conf.yaml.template
+
+  ragflow_entrypoint:
+    file: ./entrypoint.sh

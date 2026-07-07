@@ -254,3 +254,8 @@ internal/deepdoc/parser/pdf/tools-py/
 build/
 internal/deepdoc/parser/docx/testdata/
 internal/deepdoc/parser/docx/tool/
+
+# Local environment files
+docker/.env
+.env
+
