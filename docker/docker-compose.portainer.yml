@@ -42,6 +42,7 @@ services:
     image: mysql:8.0.39
     environment:
       - MYSQL_ROOT_PASSWORD=${MYSQL_PASSWORD}
+      - MYSQL_ROOT_HOST=%
       - MYSQL_DATABASE=${MYSQL_DBNAME}
     command:
       - --max_connections=1000
@@ -50,8 +51,13 @@ services:
       - --default-authentication-plugin=mysql_native_password
       - --tls_version=TLSv1.2,TLSv1.3
       - --binlog_expire_logs_seconds=604800
+      - --init-file
+      - /data/application/init.sql
     volumes:
       - mysql_data:/var/lib/mysql
+    configs:
+      - source: ragflow_mysql_init
+        target: /data/application/init.sql
     networks:
       - ragflow
     healthcheck:
@@ -190,6 +196,10 @@ networks:
     external: true
 
 configs:
+  ragflow_mysql_init:
+    name: ragflow_mysql_init_${CONFIG_VERSION:-v1}
+    file: ./init.sql
+
   ragflow_service_conf:
     name: ragflow_service_conf_${CONFIG_VERSION:-v1}
     file: ./service_conf.yaml.template
