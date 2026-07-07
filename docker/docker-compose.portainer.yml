@@ -191,7 +191,9 @@ networks:
 
 configs:
   ragflow_service_conf:
+    name: ragflow_service_conf_${CONFIG_VERSION:-v1}
     file: ./service_conf.yaml.template
 
   ragflow_entrypoint:
+    name: ragflow_entrypoint_${CONFIG_VERSION:-v1}
     file: ./entrypoint.sh
