@@ -129,12 +129,36 @@ services:
       restart_policy:
         condition: any
 
+  ocr-parser:
+    image: ${OCR_ADAPTER_IMAGE:-ghcr.io/edsonjrx/ocr-to-report-ragflow-adapter:latest}
+    environment:
+      - RUNPOD_ENDPOINT_URL=${RUNPOD_ENDPOINT_URL}
+      - RUNPOD_API_KEY=Bearer ${RUNPOD_API_KEY}
+      - RUNPOD_WORKER_TOKEN=${RUNPOD_WORKER_TOKEN:-}
+      - RUNPOD_TIMEOUT_SECONDS=${RUNPOD_TIMEOUT_SECONDS:-1800}
+    networks:
+      - ragflow
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:5001/health')"
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+
   ragflow-cpu:
     depends_on:
       - mysql
       - redis
       - minio
       - es01
+      - ocr-parser
     image: ${RAGFLOW_IMAGE}
     command:
       - --enable-adminserver
@@ -160,6 +184,8 @@ services:
       - REDIS_PORT=${REDIS_PORT}
       - REDIS_PASSWORD=${REDIS_PASSWORD}
       - DISABLE_PASSWORD_LOGIN=${DISABLE_PASSWORD_LOGIN:-false}
+      - DOCLING_SERVER_URL=http://ocr-parser:5001
+      - USE_DOCLING=true
     volumes:
       - ragflow_logs:/ragflow/logs
     configs:
