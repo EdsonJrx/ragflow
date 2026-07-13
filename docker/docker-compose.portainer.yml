@@ -130,7 +130,7 @@ services:
         condition: any
 
   ocr-parser:
-    image: ${OCR_ADAPTER_IMAGE:-ghcr.io/edsonjrx/ocr-to-report-ragflow-adapter:latest}
+    image: ${OCR_ADAPTER_IMAGE:-docker.io/edsonjrx/ocr-to-report-ragflow-adapter:latest}
     environment:
       - RUNPOD_ENDPOINT_URL=${RUNPOD_ENDPOINT_URL}
       - RUNPOD_API_KEY=Bearer ${RUNPOD_API_KEY}
