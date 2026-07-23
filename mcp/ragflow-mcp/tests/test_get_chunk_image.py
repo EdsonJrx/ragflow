@@ -328,6 +328,53 @@ def test_service_token_jwt_without_email_uses_configured_identity(monkeypatch):
     assert context.api_key == "service-api-key"
 
 
+def test_service_tokens_resolve_to_individual_ragflow_users(tmp_path, monkeypatch):
+    identity_map_path = tmp_path / "identity-map.json"
+    api_keys_dir = tmp_path / "api-keys"
+    api_keys_dir.mkdir()
+    identity_map_path.write_text(
+        json.dumps({
+            "service_tokens": {
+                "client-a.access": {
+                    "identity": "user-a@example.com",
+                    "display_name": "User A",
+                    "api_key_secret": "key-a",
+                },
+                "client-b.access": {
+                    "identity": "user-b@example.com",
+                    "api_key_secret": "key-b",
+                },
+            }
+        }),
+        encoding="utf-8",
+    )
+    (api_keys_dir / "key-a").write_text("ragflow-a", encoding="utf-8")
+    (api_keys_dir / "key-b").write_text("ragflow-b", encoding="utf-8")
+    monkeypatch.setattr(app, "RAGFLOW_IDENTITY_MAP_PATH", identity_map_path)
+    monkeypatch.setattr(app, "RAGFLOW_API_KEYS_DIR", api_keys_dir)
+    monkeypatch.setattr(app, "verify_cloudflare_jwt", lambda token: {"common_name": token})
+
+    context_a = app.identity_from_headers(app.Headers({app.JWT_HEADER: "client-a.access"}))
+    context_b = app.identity_from_headers(app.Headers({app.JWT_HEADER: "client-b.access"}))
+
+    assert (context_a.identity, context_a.display_name, context_a.api_key) == (
+        "user-a@example.com", "User A", "ragflow-a"
+    )
+    assert (context_b.identity, context_b.display_name, context_b.api_key) == (
+        "user-b@example.com", "user-b", "ragflow-b"
+    )
+
+
+def test_unmapped_service_token_is_rejected_when_service_map_exists(tmp_path, monkeypatch):
+    identity_map_path = tmp_path / "identity-map.json"
+    identity_map_path.write_text('{"service_tokens":{}}', encoding="utf-8")
+    monkeypatch.setattr(app, "RAGFLOW_IDENTITY_MAP_PATH", identity_map_path)
+    monkeypatch.setattr(app, "verify_cloudflare_jwt", lambda token: {"common_name": "unknown.access"})
+
+    with pytest.raises(PermissionError, match="service token"):
+        app.identity_from_headers(app.Headers({app.JWT_HEADER: "valid-service-jwt"}))
+
+
 def test_invalid_service_token_jwt_does_not_fall_back(monkeypatch):
     monkeypatch.setattr(app, "RAGFLOW_SERVICE_IDENTITY", "service@example.com")
 

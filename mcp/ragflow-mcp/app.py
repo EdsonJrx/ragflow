@@ -68,6 +68,13 @@ class IdentityContext:
     api_key: str
 
 
+@dataclass(frozen=True)
+class IdentityMapping:
+    identity: str
+    display_name: str
+    secret_name: str
+
+
 identity_context: contextvars.ContextVar[IdentityContext | None] = contextvars.ContextVar("identity_context", default=None)
 http_client = httpx.AsyncClient(base_url=f"{RAGFLOW_BASE_URL}{RAGFLOW_API_PREFIX}", timeout=RAGFLOW_REQUEST_TIMEOUT_SECONDS)
 
@@ -94,14 +101,53 @@ def current_identity() -> IdentityContext:
     return ctx
 
 
-def load_identity_map() -> dict[str, str]:
+def load_identity_map() -> dict[str, Any]:
     if not RAGFLOW_IDENTITY_MAP_PATH.exists():
         return {}
     with RAGFLOW_IDENTITY_MAP_PATH.open("r", encoding="utf-8") as handle:
         payload = json.load(handle)
     if not isinstance(payload, dict):
         raise RuntimeError("RAGFlow identity map must be a JSON object")
-    return {str(k).lower(): str(v) for k, v in payload.items()}
+    return payload
+
+
+def parse_identity_mapping(key: str, value: Any, *, service_token: bool = False) -> IdentityMapping:
+    if isinstance(value, str) and not service_token:
+        identity = key.strip().lower()
+        return IdentityMapping(identity, identity.split("@", 1)[0] or identity, value)
+    if not isinstance(value, dict):
+        raise RuntimeError("RAGFlow identity map entries must be strings or JSON objects")
+    identity = str(value.get("identity") or ("" if service_token else key)).strip().lower()
+    secret_name = str(value.get("api_key_secret") or "").strip()
+    display_name = str(value.get("display_name") or identity.split("@", 1)[0]).strip()
+    if not identity or not secret_name or not display_name:
+        raise RuntimeError("RAGFlow identity map entry is incomplete")
+    return IdentityMapping(identity, display_name, secret_name)
+
+
+def resolve_identity_mapping(identity: str) -> IdentityMapping:
+    payload = load_identity_map()
+    users = payload.get("users")
+    if isinstance(users, dict):
+        value = next((v for k, v in users.items() if str(k).lower() == identity.lower()), None)
+        if value is not None:
+            return parse_identity_mapping(identity, value)
+    value = next((v for k, v in payload.items() if str(k).lower() == identity.lower()), None)
+    if value is None or isinstance(value, dict):
+        raise PermissionError("No RAGFlow API key is mapped for this Cloudflare identity")
+    return parse_identity_mapping(identity, value)
+
+
+def resolve_service_token_mapping(common_name: str) -> IdentityMapping | None:
+    service_tokens = load_identity_map().get("service_tokens")
+    if service_tokens is None:
+        return None
+    if not isinstance(service_tokens, dict):
+        raise RuntimeError("RAGFlow service_tokens map must be a JSON object")
+    value = service_tokens.get(common_name)
+    if value is None:
+        raise PermissionError("No RAGFlow API key is mapped for this Cloudflare service token")
+    return parse_identity_mapping(common_name, value, service_token=True)
 
 
 def read_secret(name: str) -> str:
@@ -112,13 +158,17 @@ def read_secret(name: str) -> str:
 
 
 def resolve_api_key(identity: str) -> str:
-    mapped_secret = load_identity_map().get(identity.lower())
-    if not mapped_secret:
-        raise PermissionError("No RAGFlow API key is mapped for this Cloudflare identity")
-    api_key = read_secret(mapped_secret)
+    api_key = read_secret(resolve_identity_mapping(identity).secret_name)
     if not api_key:
         raise PermissionError("Mapped RAGFlow API key is empty")
     return api_key
+
+
+def identity_context_from_mapping(mapping: IdentityMapping) -> IdentityContext:
+    api_key = read_secret(mapping.secret_name)
+    if not api_key:
+        raise PermissionError("Mapped RAGFlow API key is empty")
+    return IdentityContext(mapping.identity, mapping.display_name, api_key)
 
 
 def service_identity_status() -> dict[str, bool]:
@@ -137,11 +187,12 @@ def service_identity_status() -> dict[str, bool]:
     except (OSError, ValueError, TypeError):
         return status
     status["identity_map_valid"] = True
-    secret_name = identity_map.get(RAGFLOW_SERVICE_IDENTITY)
-    if not secret_name:
+    try:
+        mapping = resolve_identity_mapping(RAGFLOW_SERVICE_IDENTITY)
+    except (PermissionError, RuntimeError):
         return status
     status["service_identity_mapped"] = True
-    secret_path = RAGFLOW_API_KEYS_DIR / secret_name
+    secret_path = RAGFLOW_API_KEYS_DIR / mapping.secret_name
     status["api_key_secret_present"] = secret_path.is_file()
     if status["api_key_secret_present"]:
         try:
@@ -179,11 +230,14 @@ def identity_from_headers(headers: Headers) -> IdentityContext:
         return service_identity_context()
     claims = verify_cloudflare_jwt(token)
     identity = str(claims.get("email") or headers.get(IDENTITY_HEADER) or "").strip().lower()
-    if not identity:
-        return service_identity_context()
-    api_key = resolve_api_key(identity)
-    display_name = identity.split("@", 1)[0] or identity
-    return IdentityContext(identity=identity, display_name=display_name, api_key=api_key)
+    if identity:
+        return identity_context_from_mapping(resolve_identity_mapping(identity))
+    common_name = str(claims.get("common_name") or "").strip()
+    if common_name:
+        mapping = resolve_service_token_mapping(common_name)
+        if mapping is not None:
+            return identity_context_from_mapping(mapping)
+    return service_identity_context()
 
 
 def ragflow_headers() -> dict[str, str]:

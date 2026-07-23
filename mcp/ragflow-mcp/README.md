@@ -33,6 +33,55 @@ Required environment:
 - `RAGFLOW_SERVICE_IDENTITY`
 - `RAGFLOW_MCP_ALLOWED_HOSTS`
 
+## Per-user service tokens
+
+Create one Cloudflare Access service token and one RAGFlow API key per user.
+Store each RAGFlow key in a separate Docker secret. The Cloudflare client
+secret stays only on that user's computer and is never added to this map.
+
+Use this identity-map format:
+
+```json
+{
+  "users": {
+    "informatica@engepar.com": {
+      "display_name": "Informatica",
+      "api_key_secret": "ragflow_api_key_informatica"
+    }
+  },
+  "service_tokens": {
+    "CLOUDFLARE_CLIENT_ID.access": {
+      "identity": "edson@engepar.com",
+      "display_name": "Edson",
+      "api_key_secret": "ragflow_api_key_edson"
+    }
+  }
+}
+```
+
+`service_tokens` keys are the service-token Client IDs (`common_name` in the
+validated Cloudflare JWT), not client secrets. When this section exists, an
+unmapped service token is rejected. The previous flat email-to-secret map
+remains supported for migration.
+
+Mount every referenced Docker secret below `RAGFLOW_API_KEYS_DIR`:
+
+```yaml
+services:
+  ragflow-mcp:
+    secrets:
+      - source: ragflow_api_key_edson
+        target: ragflow-api-keys/ragflow_api_key_edson
+
+secrets:
+  ragflow_api_key_edson:
+    external: true
+```
+
+Each Codex user configures their own Cloudflare service-token credentials in
+`MCP_CF_ACCESS_CLIENT_ID` and `MCP_CF_ACCESS_CLIENT_SECRET`. The gateway never
+accepts a RAGFlow API key from an MCP argument or request header.
+
 Image limits:
 
 - `RAGFLOW_MAX_IMAGE_BYTES=8388608`
@@ -47,8 +96,8 @@ for example `minio-ragflow.engepar.site`, and `MINIO_PUBLIC_SECURE=true`.
 ## Build
 
 ```bash
-docker build -t SEU_REGISTRY/ragflow-mcp-cloudflare-gateway:1.2.1 .
-docker push SEU_REGISTRY/ragflow-mcp-cloudflare-gateway:1.2.1
+docker build -t SEU_REGISTRY/ragflow-mcp-cloudflare-gateway:1.3.0 .
+docker push SEU_REGISTRY/ragflow-mcp-cloudflare-gateway:1.3.0
 docker stack deploy -c stack.yml ragflow_mcp
 docker service logs -f ragflow_mcp_ragflow-mcp-gateway
 ```
