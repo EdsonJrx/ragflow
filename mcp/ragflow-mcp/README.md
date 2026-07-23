@@ -41,7 +41,9 @@ Dynamic registry mode:
 
 When `TOKEN_REGISTRY_URL` is configured, the gateway requires a Cloudflare JWT
 and resolves the identity through Token Registry. Local identity-map files are
-used only when registry mode is disabled. See `stack.registry.yml`.
+used only when registry mode is disabled. The registry is maintained in the
+independent private repository `EdsonJrx/mcp-token-registry`. See
+`stack.registry.yml` for the gateway integration.
 
 ## Per-user service tokens
 
