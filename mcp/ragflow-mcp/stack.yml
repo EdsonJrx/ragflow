@@ -1,0 +1,69 @@
+version: "3.8"
+
+services:
+  ragflow-mcp:
+    image: ${RAGFLOW_MCP_IMAGE:-edsonjrx/ragflow-mcp-cloudflare-gateway:1.2.0}
+
+    environment:
+      RAGFLOW_BASE_URL: ${RAGFLOW_BASE_URL:-http://ragflow-cpu:9380}
+      RAGFLOW_API_PREFIX: ${RAGFLOW_API_PREFIX:-/api/v1}
+      RAGFLOW_API_KEYS_DIR: ${RAGFLOW_API_KEYS_DIR:-/run/secrets/ragflow-api-keys}
+      RAGFLOW_IDENTITY_MAP_PATH: ${RAGFLOW_IDENTITY_MAP_PATH:-/run/secrets/ragflow-identity-map.json}
+      RAGFLOW_MAX_IMAGE_BYTES: ${RAGFLOW_MAX_IMAGE_BYTES:-8388608}
+      RAGFLOW_MAX_IMAGE_PIXELS: ${RAGFLOW_MAX_IMAGE_PIXELS:-40000000}
+      RAGFLOW_IMAGE_MAX_DIMENSION: ${RAGFLOW_IMAGE_MAX_DIMENSION:-1600}
+      RAGFLOW_MCP_ALLOWED_HOSTS: ${RAGFLOW_MCP_ALLOWED_HOSTS:-mcp-ragflow.engepar.site}
+      RAGFLOW_SERVICE_IDENTITY: ${RAGFLOW_SERVICE_IDENTITY:-informatica@engepar.com}
+      CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN}
+      CF_ACCESS_AUDIENCE: ${CF_ACCESS_AUDIENCE}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+    secrets:
+      - source: ragflow_identity_map_v2
+        target: ragflow-identity-map.json
+      - source: ragflow_api_key_informatica
+        target: ragflow-api-keys/ragflow_api_key_informatica
+
+    networks:
+      - mcp_shared
+      - ragflow_network
+
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
+        reservations:
+          memory: 128M
+
+networks:
+  mcp_shared:
+    external: true
+    name: mcp_shared
+
+  ragflow_network:
+    external: true
+    name: ragflow_ragflow
+
+secrets:
+  ragflow_identity_map_v2:
+    external: true
+
+  ragflow_api_key_informatica:
+    external: true

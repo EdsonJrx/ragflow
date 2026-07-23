@@ -19,6 +19,9 @@ minio:
   host: '${MINIO_HOST:-minio}:9000'
   bucket: '${MINIO_BUCKET:-}'
   prefix_path: '${MINIO_PREFIX_PATH:-}'
+  # Public S3 endpoint used only when generating browser-accessible presigned URLs.
+  public_host: '${MINIO_PUBLIC_HOST:-}'
+  public_secure: ${MINIO_PUBLIC_SECURE:-true}
   # optional: set to true for HTTPS (SSL/TLS). Used by MinIO client and health check.
   # secure: ${MINIO_SECURE:-false}
   # optional: set to false to allow self-signed certificates (e.g. in development).

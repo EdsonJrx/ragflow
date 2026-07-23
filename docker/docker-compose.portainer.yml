@@ -88,6 +88,7 @@ services:
       - minio_data:/data
     networks:
       - ragflow
+      - mcp_shared
     healthcheck:
       test:
         - CMD
@@ -180,6 +181,8 @@ services:
       - MINIO_PORT=${MINIO_PORT}
       - MINIO_USER=${MINIO_USER}
       - MINIO_PASSWORD=${MINIO_PASSWORD}
+      - MINIO_PUBLIC_HOST=${MINIO_PUBLIC_HOST:-}
+      - MINIO_PUBLIC_SECURE=${MINIO_PUBLIC_SECURE:-true}
       - REDIS_HOST=${REDIS_HOST}
       - REDIS_PORT=${REDIS_PORT}
       - REDIS_PASSWORD=${REDIS_PASSWORD}
@@ -223,6 +226,10 @@ networks:
 
   traefik_public:
     external: true
+
+  mcp_shared:
+    external: true
+    name: mcp_shared
 
 configs:
   ragflow_mysql_init:

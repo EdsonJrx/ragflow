@@ -632,6 +632,45 @@ class TestDocumentMetadataUnit:
         assert res["code"] == RetCode.DATA_ERROR
         assert "Image not found" in res["message"]
 
+    def test_get_document_image_presigned_authorized(self, document_app_module, monkeypatch):
+        module = document_app_module
+        storage_calls = []
+
+        class _Storage:
+            def obj_exist(self, bucket, object_name, tenant_id=None):
+                storage_calls.append(("exists", bucket, object_name, tenant_id))
+                return True
+
+            def get_presigned_url(self, bucket, object_name, expires, tenant_id=None):
+                storage_calls.append(("presign", bucket, object_name, expires, tenant_id))
+                return "https://minio.example.test/bucket/object?signature=test"
+
+        async def fake_thread_pool_exec(fn, *args, **kwargs):
+            return fn(*args, **kwargs)
+
+        monkeypatch.setattr(module.KnowledgebaseService, "accessible", lambda *_args: True)
+        monkeypatch.setattr(module.settings, "STORAGE_IMPL", _Storage())
+        monkeypatch.setattr(module, "thread_pool_exec", fake_thread_pool_exec)
+        monkeypatch.setattr(module, "request", SimpleNamespace(args={"expires_in": "300"}))
+
+        res = _run(module.get_document_image_presigned(image_id="kb1-object-key"))
+
+        assert res["code"] == 0
+        assert res["data"]["url"].startswith("https://minio.example.test/")
+        assert res["data"]["expires_in"] == 300
+        assert storage_calls[0][0:3] == ("exists", "kb1", "object-key")
+        assert storage_calls[1][0:4] == ("presign", "kb1", "object-key", 300)
+
+    def test_get_document_image_presigned_rejects_inaccessible_dataset(self, document_app_module, monkeypatch):
+        module = document_app_module
+        monkeypatch.setattr(module.KnowledgebaseService, "accessible", lambda *_args: False)
+        monkeypatch.setattr(module.settings, "STORAGE_IMPL", SimpleNamespace())
+
+        res = _run(module.get_document_image_presigned(image_id="other-kb-object-key"))
+
+        assert res["code"] == RetCode.DATA_ERROR
+        assert res["message"] == "Image not found."
+
     @pytest.mark.p2
     def test_get_artifact_denied_without_session_reference_unit(self, document_app_module, monkeypatch):
         module = document_app_module

@@ -13,6 +13,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 #
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 import logging
 import json
@@ -1808,6 +1809,48 @@ async def get_document_image(image_id):
         return response
     except Exception as e:
         return server_error_response(e)
+
+
+@manager.route("/documents/images/<image_id>/presigned", methods=["GET"])  # noqa: F821
+@login_required(auth_types=[AUTH_JWT, AUTH_API, AUTH_BETA])
+@add_tenant_id_to_kwargs
+async def get_document_image_presigned(image_id, tenant_id):
+    """Return a short-lived storage URL for an image in an accessible dataset."""
+    parsed = _parse_document_image_id(image_id)
+    if not parsed:
+        return get_error_data_result(message="Image not found.")
+    bucket, object_name = parsed
+    if not KnowledgebaseService.accessible(bucket, tenant_id):
+        return get_error_data_result(message="Image not found.")
+
+    try:
+        expires_in = int(request.args.get("expires_in", 900))
+    except (TypeError, ValueError):
+        return get_error_argument_result(message="expires_in must be an integer")
+    if not 60 <= expires_in <= 3600:
+        return get_error_argument_result(message="expires_in must be between 60 and 3600 seconds")
+
+    storage = settings.STORAGE_IMPL
+    if not hasattr(storage, "get_presigned_url"):
+        return get_error_data_result(message="Presigned URLs are not supported by the configured storage.")
+    try:
+        exists = await thread_pool_exec(storage.obj_exist, bucket, object_name, tenant_id)
+        if not exists:
+            return get_error_data_result(message="Image not found.")
+        url = await thread_pool_exec(storage.get_presigned_url, bucket, object_name, expires_in, tenant_id)
+        if not url:
+            return get_error_data_result(message="Unable to create a presigned image URL.")
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+        return get_result(
+            data={
+                "url": url,
+                "expires_in": expires_in,
+                "expires_at": expires_at.isoformat().replace("+00:00", "Z"),
+            }
+        )
+    except Exception as exc:
+        logging.exception("Unable to create a presigned document image URL")
+        return server_error_response(exc)
 
 
 ARTIFACT_CONTENT_TYPES = {

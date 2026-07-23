@@ -1,0 +1,15 @@
+[mcp_servers.ragflow]
+enabled = true
+startup_timeout_sec = 30
+tool_timeout_sec = 120
+url = "https://mcp-ragflow.engepar.site/mcp"
+enabled_tools = [
+  "ragflow_whoami",
+  "ragflow_list_datasets",
+  "ragflow_retrieval",
+  "ragflow_get_chunk_image",
+]
+
+[mcp_servers.ragflow.env_http_headers]
+CF-Access-Client-Id = "MCP_CF_ACCESS_CLIENT_ID"
+CF-Access-Client-Secret = "MCP_CF_ACCESS_CLIENT_SECRET"
