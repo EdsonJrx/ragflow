@@ -233,13 +233,13 @@ networks:
 
 configs:
   ragflow_mysql_init:
-    name: ragflow_mysql_init_${CONFIG_VERSION:-v1}
+    name: ragflow_mysql_init_${MYSQL_CONFIG_VERSION:-v1}
     file: ./init.sql
 
   ragflow_service_conf:
-    name: ragflow_service_conf_${CONFIG_VERSION:-v1}
+    name: ragflow_service_conf_${SERVICE_CONFIG_VERSION:-v1}
     file: ./service_conf.yaml.template
 
   ragflow_entrypoint:
-    name: ragflow_entrypoint_${CONFIG_VERSION:-v1}
+    name: ragflow_entrypoint_${ENTRYPOINT_CONFIG_VERSION:-v1}
     file: ./entrypoint.sh
