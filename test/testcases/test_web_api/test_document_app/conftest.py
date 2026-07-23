@@ -128,8 +128,11 @@ def document_app_module(monkeypatch):
 
     stub_apps = ModuleType("api.apps")
     stub_apps.__path__ = [str(repo_root / "api" / "apps")]
+    stub_apps.AUTH_JWT = "jwt"
+    stub_apps.AUTH_API = "api"
+    stub_apps.AUTH_BETA = "beta"
     stub_apps.current_user = SimpleNamespace(id="user-1")
-    stub_apps.login_required = lambda func: func
+    stub_apps.login_required = lambda func=None, auth_types=None: func if func is not None else (lambda wrapped: wrapped)
     monkeypatch.setitem(sys.modules, "api.apps", stub_apps)
 
     stub_apps_services = ModuleType("api.apps.services")
@@ -208,8 +211,11 @@ def document_rest_api_module(monkeypatch):
 
     stub_apps = ModuleType("api.apps")
     stub_apps.__path__ = [str(repo_root / "api" / "apps")]
+    stub_apps.AUTH_JWT = "jwt"
+    stub_apps.AUTH_API = "api"
+    stub_apps.AUTH_BETA = "beta"
     stub_apps.current_user = SimpleNamespace(id="user-1")
-    stub_apps.login_required = lambda func: func
+    stub_apps.login_required = lambda func=None, auth_types=None: func if func is not None else (lambda wrapped: wrapped)
     monkeypatch.setitem(sys.modules, "api.apps", stub_apps)
 
     stub_apps_services = ModuleType("api.apps.services")

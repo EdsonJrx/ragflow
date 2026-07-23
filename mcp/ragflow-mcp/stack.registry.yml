@@ -1,0 +1,60 @@
+services:
+  ragflow-mcp:
+    image: ${RAGFLOW_MCP_IMAGE:-edsonjrx/ragflow-mcp-cloudflare-gateway:1.4.2}
+
+    environment:
+      RAGFLOW_BASE_URL: ${RAGFLOW_BASE_URL:-http://ragflow-cpu:9380}
+      RAGFLOW_API_PREFIX: ${RAGFLOW_API_PREFIX:-/api/v1}
+      RAGFLOW_MAX_IMAGE_BYTES: ${RAGFLOW_MAX_IMAGE_BYTES:-8388608}
+      RAGFLOW_MAX_IMAGE_PIXELS: ${RAGFLOW_MAX_IMAGE_PIXELS:-40000000}
+      RAGFLOW_IMAGE_MAX_DIMENSION: ${RAGFLOW_IMAGE_MAX_DIMENSION:-1600}
+      RAGFLOW_MCP_ALLOWED_HOSTS: ${RAGFLOW_MCP_ALLOWED_HOSTS:-mcp-ragflow.engepar.site}
+      TOKEN_REGISTRY_URL: http://token_registry_token-registry:8080
+      TOKEN_REGISTRY_APPLICATION: ragflow
+      TOKEN_REGISTRY_HOST_HEADER: tokens.engepar.site
+      TOKEN_REGISTRY_RESOLVER_KEY_PATH: /run/secrets/token_registry_resolver_key
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+    secrets:
+      - token_registry_resolver_key
+
+    networks:
+      - mcp_shared
+      - ragflow_network
+
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
+        reservations:
+          memory: 128M
+
+networks:
+  mcp_shared:
+    external: true
+    name: mcp_shared
+
+  ragflow_network:
+    external: true
+    name: ragflow_ragflow
+
+secrets:
+  token_registry_resolver_key:
+    external: true

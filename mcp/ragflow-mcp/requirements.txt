@@ -1,0 +1,7 @@
+mcp>=1.27,<2
+cryptography>=45,<50
+httpx>=0.28,<1
+PyJWT[crypto]>=2.10,<3
+Pillow>=11,<13
+starlette>=0.47,<1
+uvicorn[standard]>=0.35,<1

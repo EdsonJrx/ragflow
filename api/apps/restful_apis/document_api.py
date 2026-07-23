@@ -13,12 +13,14 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 #
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 import logging
 import json
 import os
 import re
 from pathlib import Path
+from urllib.parse import quote
 
 from quart import request, make_response, send_file
 from peewee import OperationalError
@@ -1770,6 +1772,43 @@ def _content_type_for_document_image(object_name, data):
     return "application/octet-stream"
 
 
+def _extension_for_image_content_type(content_type):
+    return {
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
+        "image/gif": ".gif",
+        "image/webp": ".webp",
+        "image/bmp": ".bmp",
+    }.get(content_type, ".img")
+
+
+def _presigned_response_headers(filename, content_type):
+    safe_filename = Path(filename or "download").name
+    encoded_filename = quote(safe_filename, safe="")
+    return {
+        "response-content-type": content_type or "application/octet-stream",
+        "response-content-disposition": f"inline; filename*=UTF-8''{encoded_filename}",
+    }
+
+
+async def _create_presigned_storage_url(storage, bucket, object_name, expires_in, tenant_id, filename, content_type):
+    exists = await thread_pool_exec(storage.obj_exist, bucket, object_name, tenant_id)
+    if not exists:
+        return None
+    response_headers = _presigned_response_headers(filename, content_type)
+    try:
+        return await thread_pool_exec(
+            storage.get_presigned_url,
+            bucket,
+            object_name,
+            expires_in,
+            tenant_id,
+            response_headers=response_headers,
+        )
+    except TypeError:
+        return await thread_pool_exec(storage.get_presigned_url, bucket, object_name, expires_in, tenant_id)
+
+
 @manager.route("/documents/images/<image_id>", methods=["GET"])  # noqa: F821
 @login_required(auth_types=[AUTH_JWT, AUTH_API, AUTH_BETA])
 async def get_document_image(image_id):
@@ -1808,6 +1847,112 @@ async def get_document_image(image_id):
         return response
     except Exception as e:
         return server_error_response(e)
+
+
+@manager.route("/documents/images/<image_id>/presigned", methods=["GET"])  # noqa: F821
+@login_required(auth_types=[AUTH_JWT, AUTH_API, AUTH_BETA])
+@add_tenant_id_to_kwargs
+async def get_document_image_presigned(image_id, tenant_id):
+    """Return a short-lived storage URL for an image in an accessible dataset."""
+    parsed = _parse_document_image_id(image_id)
+    if not parsed:
+        return get_error_data_result(message="Image not found.")
+    bucket, object_name = parsed
+    if not KnowledgebaseService.accessible(bucket, tenant_id):
+        return get_error_data_result(message="Image not found.")
+
+    try:
+        expires_in = int(request.args.get("expires_in", 900))
+    except (TypeError, ValueError):
+        return get_error_argument_result(message="expires_in must be an integer")
+    if not 60 <= expires_in <= 3600:
+        return get_error_argument_result(message="expires_in must be between 60 and 3600 seconds")
+
+    storage = settings.STORAGE_IMPL
+    if not hasattr(storage, "get_presigned_url"):
+        return get_error_data_result(message="Presigned URLs are not supported by the configured storage.")
+    try:
+        image_data = await thread_pool_exec(storage.get, bucket, object_name, tenant_id)
+        if not image_data:
+            return get_error_data_result(message="Image not found.")
+        content_type = _content_type_for_document_image(object_name, image_data)
+        filename = object_name
+        if not Path(filename).suffix:
+            filename = f"{filename}{_extension_for_image_content_type(content_type)}"
+        url = await _create_presigned_storage_url(
+            storage,
+            bucket,
+            object_name,
+            expires_in,
+            tenant_id,
+            filename,
+            content_type,
+        )
+        if not url:
+            return get_error_data_result(message="Unable to create a presigned image URL.")
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+        return get_result(
+            data={
+                "url": url,
+                "expires_in": expires_in,
+                "expires_at": expires_at.isoformat().replace("+00:00", "Z"),
+            }
+        )
+    except Exception as exc:
+        logging.exception("Unable to create a presigned document image URL")
+        return server_error_response(exc)
+
+
+@manager.route("/datasets/<dataset_id>/documents/<document_id>/presigned", methods=["GET"])  # noqa: F821
+@login_required(auth_types=[AUTH_JWT, AUTH_API, AUTH_BETA])
+@add_tenant_id_to_kwargs
+async def get_document_presigned(dataset_id, document_id, tenant_id):
+    """Return a short-lived URL for an authorized source document."""
+    if not KnowledgebaseService.accessible(dataset_id, tenant_id):
+        return get_data_error_result(message="Document not found!")
+    if not DocumentService.accessible(document_id, tenant_id):
+        return get_data_error_result(message="Document not found!")
+    documents = DocumentService.query(kb_id=dataset_id, id=document_id)
+    if not documents:
+        return get_data_error_result(message="Document not found!")
+    try:
+        expires_in = int(request.args.get("expires_in", 900))
+    except (TypeError, ValueError):
+        return get_error_argument_result(message="expires_in must be an integer")
+    if not 60 <= expires_in <= 3600:
+        return get_error_argument_result(message="expires_in must be between 60 and 3600 seconds")
+
+    document = documents[0]
+    bucket, object_name = File2DocumentService.get_storage_address(doc_id=document_id)
+    storage = settings.STORAGE_IMPL
+    if not hasattr(storage, "get_presigned_url"):
+        return get_error_data_result(message="Presigned URLs are not supported by the configured storage.")
+    try:
+        content_type = _mimetype_for_document(document)
+        url = await _create_presigned_storage_url(
+            storage,
+            bucket,
+            object_name,
+            expires_in,
+            tenant_id,
+            document.name,
+            content_type,
+        )
+        if not url:
+            return get_data_error_result(message="Document not found!")
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+        return get_result(
+            data={
+                "url": url,
+                "expires_in": expires_in,
+                "expires_at": expires_at.isoformat().replace("+00:00", "Z"),
+                "filename": document.name,
+                "content_type": content_type,
+            }
+        )
+    except Exception as exc:
+        logging.exception("Unable to create a presigned document URL")
+        return server_error_response(exc)
 
 
 ARTIFACT_CONTENT_TYPES = {

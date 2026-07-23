@@ -14,13 +14,15 @@
 #  limitations under the License.
 #
 
+from datetime import timedelta
+from io import BytesIO
 import logging
 import ssl
 import time
+
 from minio import Minio
 from minio.commonconfig import CopySource
 from minio.error import S3Error, ServerError, InvalidResponseError
-from io import BytesIO
 import urllib3
 from common.decorator import singleton
 from common import settings
@@ -42,6 +44,7 @@ def _build_minio_http_client():
 class RAGFlowMinio:
     def __init__(self):
         self.conn = None
+        self.presign_conn = None
         # Use `or None` to convert empty strings to None, ensuring single-bucket
         # mode is truly disabled when not configured
         self.bucket = settings.MINIO.get("bucket", None) or None
@@ -109,6 +112,20 @@ class RAGFlowMinio:
                 region=settings.MINIO.get("region", None) or None,
                 http_client=http_client,
             )
+            public_host = settings.MINIO.get("public_host", "")
+            if public_host:
+                public_secure = settings.MINIO.get("public_secure", True)
+                if isinstance(public_secure, str):
+                    public_secure = public_secure.lower() in ("true", "1", "yes")
+                self.presign_conn = Minio(
+                    public_host,
+                    access_key=settings.MINIO["user"],
+                    secret_key=settings.MINIO["password"],
+                    secure=public_secure,
+                    region=settings.MINIO.get("region", None) or None,
+                )
+            else:
+                self.presign_conn = self.conn
         except Exception:
             logging.exception("Fail to connect %s " % settings.MINIO["host"])
 
@@ -210,10 +227,17 @@ class RAGFlowMinio:
 
     @use_default_bucket
     @use_prefix_path
-    def get_presigned_url(self, bucket, fnm, expires, tenant_id=None):
+    def get_presigned_url(self, bucket, fnm, expires, tenant_id=None, response_headers=None):
         for _ in range(10):
             try:
-                return self.conn.get_presigned_url("GET", bucket, fnm, expires)
+                expiration = timedelta(seconds=expires) if isinstance(expires, (int, float)) else expires
+                return self.presign_conn.get_presigned_url(
+                    "GET",
+                    bucket,
+                    fnm,
+                    expiration,
+                    response_headers=response_headers,
+                )
             except Exception:
                 logging.exception(f"Fail to get_presigned {bucket}/{fnm}:")
                 self.__open__()
