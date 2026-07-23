@@ -9,7 +9,7 @@ services:
       RAGFLOW_MAX_IMAGE_PIXELS: ${RAGFLOW_MAX_IMAGE_PIXELS:-40000000}
       RAGFLOW_IMAGE_MAX_DIMENSION: ${RAGFLOW_IMAGE_MAX_DIMENSION:-1600}
       RAGFLOW_MCP_ALLOWED_HOSTS: ${RAGFLOW_MCP_ALLOWED_HOSTS:-mcp-ragflow.engepar.site}
-      TOKEN_REGISTRY_URL: http://token-registry:8080
+      TOKEN_REGISTRY_URL: http://token_registry_token-registry:8080
       TOKEN_REGISTRY_APPLICATION: ragflow
       TOKEN_REGISTRY_RESOLVER_KEY_PATH: /run/secrets/token_registry_resolver_key
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
