@@ -417,7 +417,7 @@ async def test_registry_resolves_individual_identity(tmp_path, monkeypatch):
 
     assert context == app.IdentityContext("user@example.com", "User", "ragflow-user-key")
     assert calls == [(
-        "http://token-registry:8080/v1/resolve/ragflow",
+        "http://token-registry:8080/api/v1/resolve/ragflow",
         {
             "headers": {"Authorization": "Bearer registry-secret"},
             "json": {"access_jwt": "validated-by-registry"},

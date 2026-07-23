@@ -257,7 +257,7 @@ async def resolve_registry_identity(access_jwt: str) -> IdentityContext:
     if not resolver_key:
         raise RuntimeError("Token registry resolver key is empty")
     response = await http_client.post(
-        f"{TOKEN_REGISTRY_URL}/v1/resolve/{quote(TOKEN_REGISTRY_APPLICATION, safe='')}",
+        f"{TOKEN_REGISTRY_URL}/api/v1/resolve/{quote(TOKEN_REGISTRY_APPLICATION, safe='')}",
         headers={"Authorization": f"Bearer {resolver_key}"},
         json={"access_jwt": access_jwt},
     )

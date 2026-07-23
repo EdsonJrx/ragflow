@@ -108,8 +108,8 @@ for example `minio-ragflow.engepar.site`, and `MINIO_PUBLIC_SECURE=true`.
 ## Build
 
 ```bash
-docker build -t SEU_REGISTRY/ragflow-mcp-cloudflare-gateway:1.4.0 .
-docker push SEU_REGISTRY/ragflow-mcp-cloudflare-gateway:1.4.0
+docker build -t SEU_REGISTRY/ragflow-mcp-cloudflare-gateway:1.4.1 .
+docker push SEU_REGISTRY/ragflow-mcp-cloudflare-gateway:1.4.1
 docker stack deploy -c stack.yml ragflow_mcp
 docker service logs -f ragflow_mcp_ragflow-mcp-gateway
 ```
