@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   ragflow-mcp:
-    image: ${RAGFLOW_MCP_IMAGE:-edsonjrx/ragflow-mcp-cloudflare-gateway:1.2.0}
+    image: ${RAGFLOW_MCP_IMAGE:-edsonjrx/ragflow-mcp-cloudflare-gateway:1.2.1}
 
     environment:
       RAGFLOW_BASE_URL: ${RAGFLOW_BASE_URL:-http://ragflow-cpu:9380}

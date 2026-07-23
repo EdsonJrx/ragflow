@@ -9,6 +9,7 @@ RAGFlow API key stored as a Docker secret. It exposes only read operations:
 - `ragflow_list_datasets`
 - `ragflow_retrieval`
 - `ragflow_get_chunk_image`
+- `ragflow_get_document_pdf`
 
 `ragflow_get_chunk_image` never accepts `image_id` from the client. The tool
 requires `dataset_id`, `document_id` and `chunk_id`, revalidates the chunk via
@@ -16,6 +17,9 @@ RAGFlow, then obtains the image identifier from that authorized chunk. Its
 metadata includes a short-lived `signed_url` when the RAGFlow storage exposes
 a public presigning endpoint. The tool also returns that URL as an MCP
 `ResourceLink`, alongside the existing metadata and `ImageContent`.
+
+`ragflow_get_document_pdf` accepts only `dataset_id` and `document_id`,
+revalidates access in RAGFlow, and returns a short-lived PDF `ResourceLink`.
 
 ## Configuration
 
@@ -43,8 +47,8 @@ for example `minio-ragflow.engepar.site`, and `MINIO_PUBLIC_SECURE=true`.
 ## Build
 
 ```bash
-docker build -t SEU_REGISTRY/ragflow-mcp-cloudflare-gateway:1.2.0 .
-docker push SEU_REGISTRY/ragflow-mcp-cloudflare-gateway:1.2.0
+docker build -t SEU_REGISTRY/ragflow-mcp-cloudflare-gateway:1.2.1 .
+docker push SEU_REGISTRY/ragflow-mcp-cloudflare-gateway:1.2.1
 docker stack deploy -c stack.yml ragflow_mcp
 docker service logs -f ragflow_mcp_ragflow-mcp-gateway
 ```

@@ -227,11 +227,17 @@ class RAGFlowMinio:
 
     @use_default_bucket
     @use_prefix_path
-    def get_presigned_url(self, bucket, fnm, expires, tenant_id=None):
+    def get_presigned_url(self, bucket, fnm, expires, tenant_id=None, response_headers=None):
         for _ in range(10):
             try:
                 expiration = timedelta(seconds=expires) if isinstance(expires, (int, float)) else expires
-                return self.presign_conn.get_presigned_url("GET", bucket, fnm, expiration)
+                return self.presign_conn.get_presigned_url(
+                    "GET",
+                    bucket,
+                    fnm,
+                    expiration,
+                    response_headers=response_headers,
+                )
             except Exception:
                 logging.exception(f"Fail to get_presigned {bucket}/{fnm}:")
                 self.__open__()

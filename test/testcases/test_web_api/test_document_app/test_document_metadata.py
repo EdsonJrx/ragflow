@@ -637,6 +637,9 @@ class TestDocumentMetadataUnit:
         storage_calls = []
 
         class _Storage:
+            def get(self, bucket, object_name, tenant_id=None):
+                return b"\x89PNG\r\n\x1a\n"
+
             def obj_exist(self, bucket, object_name, tenant_id=None):
                 storage_calls.append(("exists", bucket, object_name, tenant_id))
                 return True
@@ -670,6 +673,45 @@ class TestDocumentMetadataUnit:
 
         assert res["code"] == RetCode.DATA_ERROR
         assert res["message"] == "Image not found."
+
+    def test_get_document_presigned_authorized_pdf(self, document_app_module, monkeypatch):
+        module = document_app_module
+        document = SimpleNamespace(name="Manual.pdf", type=module.FileType.OTHER.value)
+
+        class _Storage:
+            def obj_exist(self, *_args, **_kwargs):
+                return True
+
+            def get_presigned_url(self, bucket, object_name, expires, tenant_id=None, response_headers=None):
+                assert response_headers["response-content-type"] == "application/pdf"
+                assert "Manual.pdf" in response_headers["response-content-disposition"]
+                return "https://minio.example.test/bucket/manual?signature=test"
+
+        async def fake_thread_pool_exec(fn, *args, **kwargs):
+            return fn(*args, **kwargs)
+
+        monkeypatch.setattr(module.KnowledgebaseService, "accessible", lambda *_args, **_kwargs: True)
+        monkeypatch.setattr(module.DocumentService, "accessible", lambda *_args, **_kwargs: True)
+        monkeypatch.setattr(module.DocumentService, "query", lambda **_kwargs: [document])
+        monkeypatch.setattr(module.File2DocumentService, "get_storage_address", lambda **_kwargs: ("bucket", "object"))
+        monkeypatch.setattr(module.settings, "STORAGE_IMPL", _Storage())
+        monkeypatch.setattr(module, "thread_pool_exec", fake_thread_pool_exec)
+        monkeypatch.setattr(module, "request", SimpleNamespace(args={"expires_in": "300"}))
+
+        res = _run(module.get_document_presigned(dataset_id="dataset-a", document_id="document-a"))
+
+        assert res["code"] == 0
+        assert res["data"]["filename"] == "Manual.pdf"
+        assert res["data"]["content_type"] == "application/pdf"
+
+    def test_get_document_presigned_rejects_other_dataset(self, document_app_module, monkeypatch):
+        module = document_app_module
+        monkeypatch.setattr(module.KnowledgebaseService, "accessible", lambda *_args, **_kwargs: False)
+
+        res = _run(module.get_document_presigned(dataset_id="dataset-b", document_id="document-a"))
+
+        assert res["code"] == RetCode.DATA_ERROR
+        assert res["message"] == "Document not found!"
 
     @pytest.mark.p2
     def test_get_artifact_denied_without_session_reference_unit(self, document_app_module, monkeypatch):

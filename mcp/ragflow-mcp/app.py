@@ -79,7 +79,9 @@ mcp = FastMCP(
         "returned by ragflow_list_datasets. When ragflow_retrieval returns a chunk "
         "with image.available=true and the figure is relevant, call "
         "ragflow_get_chunk_image using exactly the arguments provided in "
-        "image.arguments. Cite the returned figure using image.reference."
+        "image.arguments. Cite the returned figure using image.reference. "
+        "When a PDF source is relevant, call ragflow_get_document_pdf using "
+        "the arguments provided in document.arguments."
     ),
     transport_security=TransportSecuritySettings(allowed_hosts=RAGFLOW_MCP_ALLOWED_HOSTS),
 )
@@ -346,6 +348,19 @@ def enrich_chunks(chunks: list[Any], accessible: list[dict[str, Any]]) -> list[d
             "chunk_id": chunk_id or None,
             "positions": positions,
         }
+        document_name = str(chunk.get("document_name") or "")
+        if dataset_id and document_id and document_name.lower().endswith(".pdf"):
+            chunk["document"] = {
+                "available": True,
+                "filename": document_name,
+                "tool": "ragflow_get_document_pdf",
+                "arguments": {
+                    "dataset_id": dataset_id,
+                    "document_id": document_id,
+                },
+            }
+        else:
+            chunk["document"] = {"available": False}
         if image_id and dataset_id and document_id and chunk_id:
             figure_counter += 1
             reference = f"FIG-{figure_counter:03d}"
@@ -491,6 +506,65 @@ async def ragflow_get_chunk_image(
                 title=f"{metadata['reference']} - {metadata['document_name'] or 'RAGFlow image'}",
                 description="Short-lived URL for the authorized RAGFlow chunk image",
                 mimeType=declared_mime_type if declared_mime_type.startswith("image/") else None,
+            ),
+        ]
+    )
+
+
+@mcp.tool(structured_output=False)
+async def ragflow_get_document_pdf(
+    dataset_id: str,
+    document_id: str,
+    signed_url_expires_in: int = 900,
+) -> CallToolResult:
+    """Return a short-lived link for one authorized RAGFlow PDF document."""
+    dataset_id = validate_ragflow_id("dataset_id", dataset_id)
+    document_id = validate_ragflow_id("document_id", document_id)
+    if not 60 <= int(signed_url_expires_in) <= 3600:
+        raise ValueError("signed_url_expires_in must be between 60 and 3600 seconds")
+
+    ctx = current_identity()
+    dataset = await require_accessible_dataset(dataset_id)
+    payload = await ragflow_request(
+        "GET",
+        f"/datasets/{path_segment(dataset_id)}/documents/{path_segment(document_id)}/presigned",
+        params={"expires_in": int(signed_url_expires_in)},
+    )
+    data = payload.get("data") or {}
+    if not isinstance(data, dict) or not data.get("url"):
+        raise RuntimeError("RAGFlow did not return a presigned document URL")
+    filename = str(data.get("filename") or "document.pdf")
+    content_type = str(data.get("content_type") or "application/octet-stream")
+    if content_type != "application/pdf" and not filename.lower().endswith(".pdf"):
+        raise ValueError("The requested document is not a PDF")
+
+    metadata = {
+        "identity": ctx.display_name,
+        "dataset_id": dataset_id,
+        "dataset_name": dataset.get("name"),
+        "document_id": document_id,
+        "document_name": filename,
+        "content_type": "application/pdf",
+        "signed_url": data["url"],
+        "signed_url_expires_in": data.get("expires_in", int(signed_url_expires_in)),
+        "signed_url_expires_at": data.get("expires_at"),
+    }
+    logger.info(
+        "Returned document PDF link identity=%s dataset_id=%s document_id=%s",
+        ctx.identity,
+        dataset_id,
+        document_id,
+    )
+    return CallToolResult(
+        content=[
+            TextContent(type="text", text=json.dumps(metadata, ensure_ascii=False)),
+            ResourceLink(
+                type="resource_link",
+                uri=data["url"],
+                name=filename,
+                title=filename,
+                description="Short-lived URL for the authorized RAGFlow PDF document",
+                mimeType="application/pdf",
             ),
         ]
     )

@@ -8,6 +8,7 @@ enabled_tools = [
   "ragflow_list_datasets",
   "ragflow_retrieval",
   "ragflow_get_chunk_image",
+  "ragflow_get_document_pdf",
 ]
 
 [mcp_servers.ragflow.env_http_headers]

@@ -84,6 +84,11 @@ async def call_image_tool(**kwargs):
     return metadata, image
 
 
+async def call_pdf_tool(**kwargs):
+    tool = getattr(app.ragflow_get_document_pdf, "fn", app.ragflow_get_document_pdf)
+    return await tool(**kwargs)
+
+
 @pytest.mark.asyncio
 async def test_chunk_with_image_returns_text_and_image(identity, monkeypatch):
     client = FakeClient({
@@ -209,6 +214,72 @@ async def test_signed_url_expiry_is_bounded(identity):
             chunk_id="chunk-a",
             signed_url_expires_in=3601,
         )
+
+
+@pytest.mark.asyncio
+async def test_authorized_pdf_returns_resource_link(identity, monkeypatch):
+    client = FakeClient(
+        {
+            ("GET", "/datasets"): FakeResponse(
+                payload={"code": 0, "data": [{"id": "dataset-a", "name": "Dataset A"}], "total": 1}
+            ),
+            ("GET", "/datasets/dataset-a/documents/document-a/presigned"): FakeResponse(
+                payload={
+                    "code": 0,
+                    "data": {
+                        "url": "https://minio.example.test/bucket/manual.pdf?signature=test",
+                        "expires_in": 900,
+                        "expires_at": "2026-07-23T03:00:00Z",
+                        "filename": "Manual.pdf",
+                        "content_type": "application/pdf",
+                    },
+                }
+            ),
+        }
+    )
+    monkeypatch.setattr(app, "http_client", client)
+
+    result = await call_pdf_tool(dataset_id="dataset-a", document_id="document-a")
+    metadata = json.loads(result.content[0].text)
+
+    assert metadata["document_name"] == "Manual.pdf"
+    assert metadata["content_type"] == "application/pdf"
+    assert result.content[1].type == "resource_link"
+    assert result.content[1].mimeType == "application/pdf"
+
+
+@pytest.mark.asyncio
+async def test_pdf_rejects_inaccessible_dataset(identity, monkeypatch):
+    client = FakeClient(
+        {("GET", "/datasets"): FakeResponse(payload={"code": 0, "data": [{"id": "dataset-a"}], "total": 1})}
+    )
+    monkeypatch.setattr(app, "http_client", client)
+
+    with pytest.raises(PermissionError, match="dataset is not accessible"):
+        await call_pdf_tool(dataset_id="dataset-b", document_id="document-b")
+
+    assert not any(path.endswith("/presigned") for _, path, _ in client.calls)
+
+
+def test_retrieval_enriches_pdf_tool_arguments():
+    chunks = app.enrich_chunks(
+        [
+            {
+                "id": "chunk-a",
+                "kb_id": "dataset-a",
+                "doc_id": "document-a",
+                "docnm_kwd": "Manual.pdf",
+            }
+        ],
+        [{"id": "dataset-a", "name": "Dataset A"}],
+    )
+
+    assert chunks[0]["document"] == {
+        "available": True,
+        "filename": "Manual.pdf",
+        "tool": "ragflow_get_document_pdf",
+        "arguments": {"dataset_id": "dataset-a", "document_id": "document-a"},
+    }
 
 
 def test_service_identity_status_reports_complete_configuration(tmp_path, monkeypatch):
