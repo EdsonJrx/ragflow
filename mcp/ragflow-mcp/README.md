@@ -37,6 +37,7 @@ Dynamic registry mode:
 
 - `TOKEN_REGISTRY_URL`
 - `TOKEN_REGISTRY_APPLICATION`
+- `TOKEN_REGISTRY_HOST_HEADER`
 - `TOKEN_REGISTRY_RESOLVER_KEY_PATH`
 
 When `TOKEN_REGISTRY_URL` is configured, the gateway requires a Cloudflare JWT
@@ -108,8 +109,8 @@ for example `minio-ragflow.engepar.site`, and `MINIO_PUBLIC_SECURE=true`.
 ## Build
 
 ```bash
-docker build -t SEU_REGISTRY/ragflow-mcp-cloudflare-gateway:1.4.1 .
-docker push SEU_REGISTRY/ragflow-mcp-cloudflare-gateway:1.4.1
+docker build -t SEU_REGISTRY/ragflow-mcp-cloudflare-gateway:1.4.2 .
+docker push SEU_REGISTRY/ragflow-mcp-cloudflare-gateway:1.4.2
 docker stack deploy -c stack.yml ragflow_mcp
 docker service logs -f ragflow_mcp_ragflow-mcp-gateway
 ```

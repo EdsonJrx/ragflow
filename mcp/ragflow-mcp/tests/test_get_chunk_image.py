@@ -410,6 +410,7 @@ async def test_registry_resolves_individual_identity(tmp_path, monkeypatch):
 
     monkeypatch.setattr(app, "TOKEN_REGISTRY_URL", "http://token-registry:8080")
     monkeypatch.setattr(app, "TOKEN_REGISTRY_APPLICATION", "ragflow")
+    monkeypatch.setattr(app, "TOKEN_REGISTRY_HOST_HEADER", "tokens.example.com")
     monkeypatch.setattr(app, "TOKEN_REGISTRY_RESOLVER_KEY_PATH", resolver_key_path)
     monkeypatch.setattr(app.http_client, "post", post)
 
@@ -419,7 +420,7 @@ async def test_registry_resolves_individual_identity(tmp_path, monkeypatch):
     assert calls == [(
         "http://token-registry:8080/api/v1/resolve/ragflow",
         {
-            "headers": {"Authorization": "Bearer registry-secret"},
+            "headers": {"Authorization": "Bearer registry-secret", "Host": "tokens.example.com"},
             "json": {"access_jwt": "validated-by-registry"},
         },
     )]

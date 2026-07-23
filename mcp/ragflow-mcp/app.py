@@ -46,6 +46,7 @@ RAGFLOW_MAX_IMAGE_PIXELS = int(os.getenv("RAGFLOW_MAX_IMAGE_PIXELS", "40000000")
 RAGFLOW_IMAGE_MAX_DIMENSION = int(os.getenv("RAGFLOW_IMAGE_MAX_DIMENSION", "1600"))
 TOKEN_REGISTRY_URL = os.getenv("TOKEN_REGISTRY_URL", "").rstrip("/")
 TOKEN_REGISTRY_APPLICATION = os.getenv("TOKEN_REGISTRY_APPLICATION", "ragflow").strip()
+TOKEN_REGISTRY_HOST_HEADER = os.getenv("TOKEN_REGISTRY_HOST_HEADER", "").strip()
 TOKEN_REGISTRY_RESOLVER_KEY_PATH = Path(
     os.getenv("TOKEN_REGISTRY_RESOLVER_KEY_PATH", "/run/secrets/token_registry_resolver_key")
 )
@@ -256,9 +257,12 @@ async def resolve_registry_identity(access_jwt: str) -> IdentityContext:
         raise RuntimeError("Token registry resolver key is unavailable") from exc
     if not resolver_key:
         raise RuntimeError("Token registry resolver key is empty")
+    registry_headers = {"Authorization": f"Bearer {resolver_key}"}
+    if TOKEN_REGISTRY_HOST_HEADER:
+        registry_headers["Host"] = TOKEN_REGISTRY_HOST_HEADER
     response = await http_client.post(
         f"{TOKEN_REGISTRY_URL}/api/v1/resolve/{quote(TOKEN_REGISTRY_APPLICATION, safe='')}",
-        headers={"Authorization": f"Bearer {resolver_key}"},
+        headers=registry_headers,
         json={"access_jwt": access_jwt},
     )
     if response.status_code in {401, 403, 404}:
