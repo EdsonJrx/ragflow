@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import contextlib
 import contextvars
 import io
 import json
+import hashlib
 import logging
 import os
 import re
@@ -16,6 +18,8 @@ from urllib.parse import quote
 
 import httpx
 import jwt
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.exceptions import InvalidTag
 from jwt import PyJWKClient
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
@@ -40,6 +44,11 @@ RAGFLOW_REQUEST_TIMEOUT_SECONDS = float(os.getenv("RAGFLOW_REQUEST_TIMEOUT_SECON
 RAGFLOW_MAX_IMAGE_BYTES = int(os.getenv("RAGFLOW_MAX_IMAGE_BYTES", str(8 * 1024 * 1024)))
 RAGFLOW_MAX_IMAGE_PIXELS = int(os.getenv("RAGFLOW_MAX_IMAGE_PIXELS", "40000000"))
 RAGFLOW_IMAGE_MAX_DIMENSION = int(os.getenv("RAGFLOW_IMAGE_MAX_DIMENSION", "1600"))
+TOKEN_REGISTRY_URL = os.getenv("TOKEN_REGISTRY_URL", "").rstrip("/")
+TOKEN_REGISTRY_APPLICATION = os.getenv("TOKEN_REGISTRY_APPLICATION", "ragflow").strip()
+TOKEN_REGISTRY_RESOLVER_KEY_PATH = Path(
+    os.getenv("TOKEN_REGISTRY_RESOLVER_KEY_PATH", "/run/secrets/token_registry_resolver_key")
+)
 
 CF_ACCESS_TEAM_DOMAIN = os.getenv("CF_ACCESS_TEAM_DOMAIN", "")
 CF_ACCESS_AUDIENCE = os.getenv("CF_ACCESS_AUDIENCE", "")
@@ -238,6 +247,50 @@ def identity_from_headers(headers: Headers) -> IdentityContext:
         if mapping is not None:
             return identity_context_from_mapping(mapping)
     return service_identity_context()
+
+
+async def resolve_registry_identity(access_jwt: str) -> IdentityContext:
+    try:
+        resolver_key = TOKEN_REGISTRY_RESOLVER_KEY_PATH.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise RuntimeError("Token registry resolver key is unavailable") from exc
+    if not resolver_key:
+        raise RuntimeError("Token registry resolver key is empty")
+    response = await http_client.post(
+        f"{TOKEN_REGISTRY_URL}/v1/resolve/{quote(TOKEN_REGISTRY_APPLICATION, safe='')}",
+        headers={"Authorization": f"Bearer {resolver_key}"},
+        json={"access_jwt": access_jwt},
+    )
+    if response.status_code in {401, 403, 404}:
+        raise PermissionError("No RAGFlow API key is registered for this Cloudflare identity")
+    if response.status_code >= 400:
+        raise RuntimeError(f"Token registry request failed (HTTP {response.status_code})")
+    payload = response.json()
+    identity = str(payload.get("identity") or "").strip().lower()
+    display_name = str(payload.get("display_name") or "").strip()
+    envelope = str(payload.get("credential_envelope") or "").strip()
+    if not identity or not display_name or not envelope:
+        raise RuntimeError("Token registry returned an invalid response")
+    try:
+        raw = base64.urlsafe_b64decode(envelope)
+        key = hashlib.sha256(resolver_key.encode("utf-8")).digest()
+        api_key = AESGCM(key).decrypt(
+            raw[:12],
+            raw[12:],
+            TOKEN_REGISTRY_APPLICATION.encode("utf-8"),
+        ).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError, ValueError, InvalidTag) as exc:
+        raise RuntimeError("Token registry credential envelope is invalid") from exc
+    return IdentityContext(identity, display_name, api_key)
+
+
+async def resolve_request_identity(headers: Headers) -> IdentityContext:
+    access_jwt = headers.get(JWT_HEADER, "")
+    if TOKEN_REGISTRY_URL:
+        if not access_jwt:
+            raise PermissionError("Cloudflare Access identity is required")
+        return await resolve_registry_identity(access_jwt)
+    return identity_from_headers(headers)
 
 
 def ragflow_headers() -> dict[str, str]:
@@ -630,6 +683,7 @@ async def healthz(request) -> JSONResponse:
             "status": "ok",
             "service": "ragflow-mcp-cloudflare-gateway",
             "readonly": True,
+            "token_registry_configured": bool(TOKEN_REGISTRY_URL),
             "service_identity_configured": bool(RAGFLOW_SERVICE_IDENTITY),
             "instance": INSTANCE_ID,
             **service_identity_status(),
@@ -643,7 +697,7 @@ MCP_ASGI_APP = mcp.streamable_http_app()
 async def mcp_scope(scope, receive, send) -> None:
     headers = Headers(scope=scope)
     try:
-        ctx = identity_from_headers(headers)
+        ctx = await resolve_request_identity(headers)
     except PermissionError as exc:
         logger.warning(
             "MCP authentication rejected instance=%s method=%s path=%s service_identity_configured=%s reason=%s",

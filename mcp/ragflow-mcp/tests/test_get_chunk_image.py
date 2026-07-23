@@ -387,6 +387,75 @@ def test_invalid_service_token_jwt_does_not_fall_back(monkeypatch):
         app.identity_from_headers(app.Headers({app.JWT_HEADER: "invalid-service-jwt"}))
 
 
+@pytest.mark.asyncio
+async def test_registry_resolves_individual_identity(tmp_path, monkeypatch):
+    resolver_key_path = tmp_path / "resolver-key"
+    resolver_key_path.write_text("registry-secret", encoding="utf-8")
+    calls = []
+
+    async def post(url, **kwargs):
+        calls.append((url, kwargs))
+        key = app.hashlib.sha256(b"registry-secret").digest()
+        nonce = b"n" * 12
+        envelope = app.base64.urlsafe_b64encode(
+            nonce + app.AESGCM(key).encrypt(nonce, b"ragflow-user-key", b"ragflow")
+        ).decode()
+        return FakeResponse(
+            payload={
+                "identity": "user@example.com",
+                "display_name": "User",
+                "credential_envelope": envelope,
+            }
+        )
+
+    monkeypatch.setattr(app, "TOKEN_REGISTRY_URL", "http://token-registry:8080")
+    monkeypatch.setattr(app, "TOKEN_REGISTRY_APPLICATION", "ragflow")
+    monkeypatch.setattr(app, "TOKEN_REGISTRY_RESOLVER_KEY_PATH", resolver_key_path)
+    monkeypatch.setattr(app.http_client, "post", post)
+
+    context = await app.resolve_request_identity(app.Headers({app.JWT_HEADER: "validated-by-registry"}))
+
+    assert context == app.IdentityContext("user@example.com", "User", "ragflow-user-key")
+    assert calls == [(
+        "http://token-registry:8080/v1/resolve/ragflow",
+        {
+            "headers": {"Authorization": "Bearer registry-secret"},
+            "json": {"access_jwt": "validated-by-registry"},
+        },
+    )]
+
+
+@pytest.mark.asyncio
+async def test_registry_requires_cloudflare_jwt(monkeypatch):
+    monkeypatch.setattr(app, "TOKEN_REGISTRY_URL", "http://token-registry:8080")
+
+    with pytest.raises(PermissionError, match="Cloudflare Access identity"):
+        await app.resolve_request_identity(app.Headers())
+
+
+@pytest.mark.asyncio
+async def test_registry_rejects_tampered_credential_envelope(tmp_path, monkeypatch):
+    resolver_key_path = tmp_path / "resolver-key"
+    resolver_key_path.write_text("registry-secret", encoding="utf-8")
+
+    async def post(url, **kwargs):
+        return FakeResponse(
+            payload={
+                "identity": "user@example.com",
+                "display_name": "User",
+                "credential_envelope": app.base64.urlsafe_b64encode(b"x" * 40).decode(),
+            }
+        )
+
+    monkeypatch.setattr(app, "TOKEN_REGISTRY_URL", "http://token-registry:8080")
+    monkeypatch.setattr(app, "TOKEN_REGISTRY_APPLICATION", "ragflow")
+    monkeypatch.setattr(app, "TOKEN_REGISTRY_RESOLVER_KEY_PATH", resolver_key_path)
+    monkeypatch.setattr(app.http_client, "post", post)
+
+    with pytest.raises(RuntimeError, match="envelope is invalid"):
+        await app.resolve_registry_identity("user-jwt")
+
+
 def test_streamable_http_lifespan_initializes_session_manager(monkeypatch):
     monkeypatch.setattr(app, "RAGFLOW_SERVICE_IDENTITY", "service@example.com")
     monkeypatch.setattr(app, "resolve_api_key", lambda identity: "service-api-key")

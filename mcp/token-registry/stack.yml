@@ -1,0 +1,60 @@
+services:
+  token-registry:
+    image: ${TOKEN_REGISTRY_IMAGE:-edsonjrx/mcp-token-registry:1.0.0}
+
+    environment:
+      TOKEN_REGISTRY_DATA_DIR: /data
+      TOKEN_REGISTRY_MASTER_KEY_PATH: /run/secrets/token_registry_master_key
+      TOKEN_REGISTRY_ADMIN_EMAILS: ${TOKEN_REGISTRY_ADMIN_EMAILS}
+      TOKEN_REGISTRY_PUBLIC_ORIGIN: ${TOKEN_REGISTRY_PUBLIC_ORIGIN}
+      CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN}
+      CF_ACCESS_AUDIENCE: ${CF_ACCESS_AUDIENCE}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+    secrets:
+      - token_registry_master_key
+
+    volumes:
+      - token_registry_data:/data
+
+    networks:
+      - mcp_shared
+
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+        reservations:
+          memory: 64M
+
+networks:
+  mcp_shared:
+    external: true
+    name: mcp_shared
+
+volumes:
+  token_registry_data:
+
+secrets:
+  token_registry_master_key:
+    external: true

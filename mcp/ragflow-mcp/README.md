@@ -33,6 +33,16 @@ Required environment:
 - `RAGFLOW_SERVICE_IDENTITY`
 - `RAGFLOW_MCP_ALLOWED_HOSTS`
 
+Dynamic registry mode:
+
+- `TOKEN_REGISTRY_URL`
+- `TOKEN_REGISTRY_APPLICATION`
+- `TOKEN_REGISTRY_RESOLVER_KEY_PATH`
+
+When `TOKEN_REGISTRY_URL` is configured, the gateway requires a Cloudflare JWT
+and resolves the identity through Token Registry. Local identity-map files are
+used only when registry mode is disabled. See `stack.registry.yml`.
+
 ## Per-user service tokens
 
 Create one Cloudflare Access service token and one RAGFlow API key per user.
@@ -96,8 +106,8 @@ for example `minio-ragflow.engepar.site`, and `MINIO_PUBLIC_SECURE=true`.
 ## Build
 
 ```bash
-docker build -t SEU_REGISTRY/ragflow-mcp-cloudflare-gateway:1.3.0 .
-docker push SEU_REGISTRY/ragflow-mcp-cloudflare-gateway:1.3.0
+docker build -t SEU_REGISTRY/ragflow-mcp-cloudflare-gateway:1.4.0 .
+docker push SEU_REGISTRY/ragflow-mcp-cloudflare-gateway:1.4.0
 docker stack deploy -c stack.yml ragflow_mcp
 docker service logs -f ragflow_mcp_ragflow-mcp-gateway
 ```

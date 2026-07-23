@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   ragflow-mcp:
     image: ${RAGFLOW_MCP_IMAGE:-edsonjrx/ragflow-mcp-cloudflare-gateway:1.4.0}
@@ -7,22 +5,17 @@ services:
     environment:
       RAGFLOW_BASE_URL: ${RAGFLOW_BASE_URL:-http://ragflow-cpu:9380}
       RAGFLOW_API_PREFIX: ${RAGFLOW_API_PREFIX:-/api/v1}
-      RAGFLOW_API_KEYS_DIR: ${RAGFLOW_API_KEYS_DIR:-/run/secrets/ragflow-api-keys}
-      RAGFLOW_IDENTITY_MAP_PATH: ${RAGFLOW_IDENTITY_MAP_PATH:-/run/secrets/ragflow-identity-map.json}
       RAGFLOW_MAX_IMAGE_BYTES: ${RAGFLOW_MAX_IMAGE_BYTES:-8388608}
       RAGFLOW_MAX_IMAGE_PIXELS: ${RAGFLOW_MAX_IMAGE_PIXELS:-40000000}
       RAGFLOW_IMAGE_MAX_DIMENSION: ${RAGFLOW_IMAGE_MAX_DIMENSION:-1600}
       RAGFLOW_MCP_ALLOWED_HOSTS: ${RAGFLOW_MCP_ALLOWED_HOSTS:-mcp-ragflow.engepar.site}
-      RAGFLOW_SERVICE_IDENTITY: ${RAGFLOW_SERVICE_IDENTITY:-informatica@engepar.com}
-      CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN}
-      CF_ACCESS_AUDIENCE: ${CF_ACCESS_AUDIENCE}
+      TOKEN_REGISTRY_URL: http://token-registry:8080
+      TOKEN_REGISTRY_APPLICATION: ragflow
+      TOKEN_REGISTRY_RESOLVER_KEY_PATH: /run/secrets/token_registry_resolver_key
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
     secrets:
-      - source: ragflow_identity_map_v2
-        target: ragflow-identity-map.json
-      - source: ragflow_api_key_informatica
-        target: ragflow-api-keys/ragflow_api_key_informatica
+      - token_registry_resolver_key
 
     networks:
       - mcp_shared
@@ -62,8 +55,5 @@ networks:
     name: ragflow_ragflow
 
 secrets:
-  ragflow_identity_map_v2:
-    external: true
-
-  ragflow_api_key_informatica:
+  token_registry_resolver_key:
     external: true
